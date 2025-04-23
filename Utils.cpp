@@ -4,6 +4,8 @@
 #include <iomanip>
 #include <iostream>
 #include <ctime>
+#include <algorithm>
+#include <cmath>
 
 namespace Utils {
 
@@ -164,9 +166,7 @@ void displaySavedTrades() {
     }
     
     // Display header
-    std::cout << "\n\033[1;36m"; // Cyan color
-    std::cout << "=== SAVED TRADES ===\n";
-    std::cout << "\033[0m"; // Reset color
+    printHeader("SAVED TRADES");
     
     // Print table header
     std::cout << std::left 
@@ -198,6 +198,8 @@ void displaySavedTrades() {
                       << std::endl;
         }
     }
+    
+    printFooter();
 }
 
 std::string getFormattedTimestamp(std::time_t timestamp) {
@@ -225,6 +227,18 @@ std::string getLotSizeTypeString(LotSizeType type) {
     }
 }
 
+std::vector<std::string> parseCSVLine(const std::string& line) {
+    std::vector<std::string> result;
+    std::stringstream ss(line);
+    std::string item;
+    
+    while (std::getline(ss, item, ',')) {
+        result.push_back(item);
+    }
+    
+    return result;
+}
+
 std::vector<std::vector<std::string>> parseCSV(const std::string& filename) {
     std::vector<std::vector<std::string>> data;
     std::ifstream file(filename);
@@ -235,19 +249,125 @@ std::vector<std::vector<std::string>> parseCSV(const std::string& filename) {
     
     std::string line;
     while (std::getline(file, line)) {
-        std::vector<std::string> row;
-        std::string cell;
-        std::istringstream lineStream(line);
-        
-        while (std::getline(lineStream, cell, ',')) {
-            row.push_back(cell);
-        }
-        
-        data.push_back(row);
+        data.push_back(parseCSVLine(line));
     }
     
     file.close();
     return data;
+}
+
+std::string replaceExtension(const std::string& filename, const std::string& newExtension) {
+    size_t lastDot = filename.find_last_of(".");
+    if (lastDot == std::string::npos) {
+        // No extension found, append the new extension
+        return filename + newExtension;
+    }
+    
+    return filename.substr(0, lastDot) + newExtension;
+}
+
+void clearScreen() {
+#ifdef _WIN32
+    system("cls");
+#else
+    system("clear");
+#endif
+}
+
+void printColorText(const std::string& text, int colorCode) {
+    std::cout << "\033[1;" << colorCode << "m" << text << "\033[0m";
+}
+
+void printHeader(const std::string& title) {
+    clearScreen();
+    
+    std::string line(40, '=');
+    printColorText(line + "\n", COLOR_CYAN);
+    
+    std::string centered = title;
+    int padding = (40 - static_cast<int>(title.length())) / 2;
+    if (padding > 0) {
+        centered = std::string(padding, ' ') + title;
+    }
+    
+    printColorText("  " + centered + "  \n", COLOR_CYAN);
+    printColorText(line + "\n", COLOR_CYAN);
+    std::cout << std::endl;
+}
+
+void printFooter() {
+    std::cout << std::endl;
+    printColorText(std::string(40, '-') + "\n", COLOR_CYAN);
+    std::cout << std::endl;
+}
+
+void printError(const std::string& message) {
+    printColorText("ERROR: " + message + "\n", COLOR_RED);
+}
+
+void printSuccess(const std::string& message) {
+    printColorText("SUCCESS: " + message + "\n", COLOR_GREEN);
+}
+
+void printWarning(const std::string& message) {
+    printColorText("WARNING: " + message + "\n", COLOR_YELLOW);
+}
+
+void printInfo(const std::string& message) {
+    printColorText("INFO: " + message + "\n", COLOR_BLUE);
+}
+
+std::string generateASCIIChart(const std::vector<double>& values, int width, int height) {
+    if (values.empty()) {
+        return "No data to display";
+    }
+    
+    std::stringstream ss;
+    
+    // Find min and max values
+    auto minmax = std::minmax_element(values.begin(), values.end());
+    double min_val = *minmax.first;
+    double max_val = *minmax.second;
+    
+    // Handle case where all values are the same
+    if (min_val == max_val) {
+        min_val = min_val * 0.9;
+        max_val = max_val * 1.1;
+    }
+    
+    // Adjust height to allow for labels
+    int chart_height = height - 2;
+    
+    // Create a 2D grid for the chart
+    std::vector<std::string> chart(chart_height, std::string(width, ' '));
+    
+    // Calculate scale
+    double y_scale = (max_val - min_val) / chart_height;
+    
+    // Draw Y-axis labels
+    ss << std::fixed << std::setprecision(0);
+    ss << max_val << " ┐" << std::string(width - ss.str().length(), ' ') << std::endl;
+    
+    // Draw chart
+    for (int y = 0; y < chart_height; y++) {
+        for (int x = 0; x < std::min(width, static_cast<int>(values.size())); x++) {
+            double normalized_value = (values[x] - min_val) / (max_val - min_val);
+            int chart_y = chart_height - 1 - static_cast<int>(normalized_value * chart_height);
+            
+            if (chart_y == y) {
+                chart[y][x] = 'o';
+            } else if (chart_y < y) {
+                chart[y][x] = '│';
+            }
+        }
+        
+        ss << chart[y] << std::endl;
+    }
+    
+    // Draw X-axis
+    ss << min_val << " └" << std::string(width - 2, '─') << "┘" << std::endl;
+    
+    return ss.str();
 }
 
 } // namespace Utils 
