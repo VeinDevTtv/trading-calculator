@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.10)
-project(TradingCalculator VERSION 2.0)
+cmake_minimum_required(VERSION 3.14)
+project(TradingCalculator VERSION 1.0.0)
 
 # Set C++ standard to C++17
 set(CMAKE_CXX_STANDARD 17)
@@ -128,4 +128,67 @@ install(DIRECTORY exports/ DESTINATION exports)
 if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
-endif() 
+endif()
+
+# Dependencies
+include(FetchContent)
+
+# Add spdlog for logging
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG v1.11.0
+)
+FetchContent_MakeAvailable(spdlog)
+
+# Add MatPlot++ for plotting
+FetchContent_Declare(
+    matplotplusplus
+    GIT_REPOSITORY https://github.com/alandefreitas/matplotplusplus.git
+    GIT_TAG v1.1.0
+)
+set(MATPLOTPP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(MATPLOTPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(matplotplusplus)
+
+# Add nlohmann_json for JSON parsing
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.2
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
+# Add Catch2 for testing
+FetchContent_Declare(
+    catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG v3.3.2
+)
+FetchContent_MakeAvailable(catch2)
+
+# Setup testing
+include(CTest)
+enable_testing()
+
+# Create test executable
+add_executable(unit_tests 
+    tests/test_main.cpp
+    tests/test_backtester.cpp
+    tests/test_batch_backtester.cpp
+    Trade.cpp
+    Utils.cpp
+    Backtest/Backtester.cpp
+    Backtest/BatchBacktester.cpp
+)
+
+target_link_libraries(unit_tests PRIVATE 
+    Catch2::Catch2WithMain
+    spdlog::spdlog
+    matplot++
+    nlohmann_json::nlohmann_json
+)
+
+# Register tests
+include(${catch2_SOURCE_DIR}/extras/Catch.cmake)
+catch_discover_tests(unit_tests) 

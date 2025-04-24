@@ -1,0 +1,32 @@
+{
+    "performance": {
+        "thread_count": 0,
+        "batch_size": 10,
+        "memory_limit_mb": 2048
+    },
+    "output": {
+        "formats": ["csv", "markdown", "json"],
+        "chart_format": "png",
+        "chart_width": 1200,
+        "chart_height": 800,
+        "chart_dpi": 100,
+        "include_charts_in_report": true
+    },
+    "paths": {
+        "strategy_dir": "data/strategies",
+        "output_dir": "exports",
+        "chart_dir": "exports/charts"
+    },
+    "logging": {
+        "level": "info",
+        "file": "logs/batch_backtest.log",
+        "console": true,
+        "performance_metrics": true
+    },
+    "backtest": {
+        "initial_capital": 10000,
+        "risk_per_trade": 1.0,
+        "commission": 0.1,
+        "slippage": 0.05
+    }
+} 
