@@ -5,6 +5,35 @@ project(TradingCalculator VERSION 2.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Options
+option(BUILD_TESTS "Build test suite" ON)
+option(USE_MATPLOTPP "Use MatPlot++ for plotting" ON)
+option(USE_CAIRO "Use Cairo for plotting" OFF)
+
+# Find required packages
+find_package(nlohmann_json REQUIRED)
+if(USE_MATPLOTPP)
+    find_package(MatPlot++ REQUIRED)
+endif()
+if(USE_CAIRO)
+    find_package(Cairo REQUIRED)
+endif()
+
+# Platform-specific settings
+if(WIN32)
+    # Windows-specific settings
+    set(CMAKE_WIN32_EXECUTABLE FALSE)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /SUBSYSTEM:CONSOLE")
+elseif(APPLE)
+    # macOS-specific settings
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
+else()
+    # Linux-specific settings
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
+    # Link against stdc++fs for std::filesystem
+    target_link_libraries(TradingCalculator PRIVATE stdc++fs)
+endif()
+
 # Collect source files from directories
 file(GLOB CORE_SRC 
     "*.cpp"
@@ -66,13 +95,18 @@ include_directories(${PROJECT_SOURCE_DIR}/Journal)
 include_directories(${PROJECT_SOURCE_DIR}/Backtest)
 include_directories(${PROJECT_SOURCE_DIR}/Models)
 
-# For Windows, add console subsystem to show console window
-if(WIN32)
-    set_target_properties(TradingCalculator PROPERTIES
-        WIN32_EXECUTABLE FALSE
-        LINK_FLAGS "/SUBSYSTEM:CONSOLE"
-    )
-endif() 
+# Link libraries
+target_link_libraries(TradingCalculator PRIVATE
+    nlohmann_json::nlohmann_json
+)
+
+if(USE_MATPLOTPP)
+    target_link_libraries(TradingCalculator PRIVATE MatPlot++::MatPlot++)
+endif()
+
+if(USE_CAIRO)
+    target_link_libraries(TradingCalculator PRIVATE Cairo::Cairo)
+endif()
 
 # Add compiler warnings
 if(MSVC)
@@ -81,5 +115,17 @@ else()
     target_compile_options(TradingCalculator PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+# Create necessary directories
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/exports/charts)
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/logs)
+
 # Install targets
-install(TARGETS TradingCalculator DESTINATION bin) 
+install(TARGETS TradingCalculator DESTINATION bin)
+install(DIRECTORY config/ DESTINATION config)
+install(DIRECTORY exports/ DESTINATION exports)
+
+# Testing
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif() 

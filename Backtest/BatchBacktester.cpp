@@ -7,9 +7,15 @@
 #include <sstream>
 #include <iomanip>
 #include <ctime>
+#include <thread>
+#include <future>
+#include <mutex>
+#include <chrono>
+#include <spdlog/spdlog.h>
 
 namespace Backtest {
     BatchBacktester::BatchBacktester() {
+        spdlog::info("Initializing BatchBacktester");
         // Initialize with some reasonable defaults
         m_commonConfig.initialBalance = 10000.0;
         m_commonConfig.riskPerTrade = 1.0;
@@ -18,176 +24,246 @@ namespace Backtest {
     }
     
     void BatchBacktester::addStrategyFile(const std::string& filePath) {
-        // Check if file exists and has .csv extension
-        if (std::filesystem::exists(filePath) && 
-            filePath.substr(filePath.find_last_of(".") + 1) == "csv") {
-            m_strategyFiles.push_back(filePath);
-        } else {
-            std::cerr << "Invalid strategy file: " << filePath << std::endl;
+        if (!std::filesystem::exists(filePath)) {
+            spdlog::error("Strategy file not found: {}", filePath);
+            throw std::runtime_error("Strategy file not found: " + filePath);
         }
+        
+        if (std::filesystem::path(filePath).extension() != ".csv") {
+            spdlog::warn("Non-CSV file added to batch: {}", filePath);
+        }
+        
+        m_strategyFiles.push_back(filePath);
+        spdlog::info("Added strategy file: {}", filePath);
     }
     
     bool BatchBacktester::addStrategyDirectory(const std::string& dirPath) {
-        if (!std::filesystem::exists(dirPath) || !std::filesystem::is_directory(dirPath)) {
+        if (!std::filesystem::exists(dirPath)) {
+            spdlog::error("Strategy directory not found: {}", dirPath);
             return false;
         }
         
-        bool foundFiles = false;
-        
-        // Iterate through directory and add all CSV files
+        bool filesAdded = false;
         for (const auto& entry : std::filesystem::directory_iterator(dirPath)) {
-            if (entry.is_regular_file() && 
-                entry.path().extension() == ".csv") {
+            if (entry.path().extension() == ".csv") {
                 m_strategyFiles.push_back(entry.path().string());
-                foundFiles = true;
+                filesAdded = true;
+                spdlog::info("Added strategy file from directory: {}", entry.path().string());
             }
         }
         
-        return foundFiles;
+        return filesAdded;
     }
     
     void BatchBacktester::setCommonConfig(const BacktestConfig& config) {
+        // Validate configuration
+        if (config.initialCapital <= 0) {
+            throw std::invalid_argument("Initial capital must be positive");
+        }
+        if (config.commission <= 0) {
+            throw std::invalid_argument("Commission must be positive");
+        }
+        if (config.slippage < 0) {
+            throw std::invalid_argument("Slippage cannot be negative");
+        }
+        
         m_commonConfig = config;
+        spdlog::info("Set common configuration for batch backtest");
     }
     
     BatchBacktestResults BatchBacktester::runBatchBacktest() {
-        // Clear previous results
-        m_results = BatchBacktestResults();
-        
         if (m_strategyFiles.empty()) {
-            std::cerr << "No strategy files to backtest." << std::endl;
-            return m_results;
+            spdlog::error("No strategy files added for batch backtest");
+            throw std::runtime_error("No strategy files added for batch backtest");
         }
         
-        // Initialize Backtester
-        Backtester backtester;
-        backtester.setConfig(m_commonConfig);
+        spdlog::info("Starting batch backtest with {} strategies", m_strategyFiles.size());
         
-        // Process each strategy file
-        for (const auto& filePath : m_strategyFiles) {
-            // Extract strategy name from filename
-            std::string fileName = filePath.substr(filePath.find_last_of("/\\") + 1);
-            std::string strategyName = fileName.substr(0, fileName.find_last_of('.'));
+        // Clear previous results
+        m_results = BatchBacktestResults();
+        m_results.strategyNames.reserve(m_strategyFiles.size());
+        
+        // Determine number of threads to use
+        unsigned int numThreads = std::thread::hardware_concurrency();
+        if (numThreads == 0) numThreads = 4; // Fallback if hardware_concurrency fails
+        
+        spdlog::info("Using {} threads for parallel processing", numThreads);
+        
+        // Create thread pool
+        std::vector<std::future<void>> futures;
+        std::mutex resultsMutex;
+        std::atomic<int> completedTests{0};
+        
+        // Process strategies in batches to manage memory
+        const size_t batchSize = 10;
+        for (size_t i = 0; i < m_strategyFiles.size(); i += batchSize) {
+            size_t endIdx = std::min(i + batchSize, m_strategyFiles.size());
             
-            std::cout << "Backtesting strategy: " << strategyName << std::endl;
-            
-            // Load price data
-            if (!backtester.loadPriceData(filePath)) {
-                std::cerr << "Failed to load data for strategy: " << strategyName << std::endl;
-                continue;
+            for (size_t j = i; j < endIdx; ++j) {
+                futures.push_back(std::async(std::launch::async, [&, j]() {
+                    try {
+                        const std::string& filePath = m_strategyFiles[j];
+                        std::string strategyName = std::filesystem::path(filePath).stem().string();
+                        
+                        spdlog::info("Processing strategy: {}", strategyName);
+                        
+                        Backtester backtester;
+                        backtester.setConfig(m_commonConfig);
+                        backtester.loadData(filePath);
+                        BacktestResult result = backtester.runBacktest();
+                        
+                        // Generate equity curve image
+                        std::string imagePath = generateEquityCurveImage(strategyName, result);
+                        
+                        // Update results thread-safely
+                        {
+                            std::lock_guard<std::mutex> lock(resultsMutex);
+                            m_results.strategyNames.push_back(strategyName);
+                            m_results.results[strategyName] = result;
+                            m_results.equityCurveImages[strategyName] = imagePath;
+                        }
+                        
+                        completedTests++;
+                        spdlog::info("Completed strategy {} ({}/{})", 
+                                    strategyName, completedTests.load(), m_strategyFiles.size());
+                        
+                    } catch (const std::exception& e) {
+                        spdlog::error("Error processing strategy {}: {}", 
+                                    m_strategyFiles[j], e.what());
+                    }
+                }));
+                
+                // Wait if we've reached the thread limit
+                if (futures.size() >= numThreads) {
+                    for (auto& future : futures) {
+                        future.wait();
+                    }
+                    futures.clear();
+                }
             }
-            
-            // Run backtest
-            BacktestResult result = backtester.runBacktest();
-            
-            // Store results
-            m_results.strategyNames.push_back(strategyName);
-            m_results.results[strategyName] = result;
-            
-            // Generate equity curve image
-            m_results.equityCurveImages[strategyName] = generateEquityCurveImage(strategyName, result);
-            
-            std::cout << "Completed backtest for " << strategyName 
-                      << ": Win Rate = " << std::fixed << std::setprecision(2) 
-                      << result.winRate << "%, Profit Factor = " 
-                      << result.profitFactor << std::endl;
+        }
+        
+        // Wait for remaining tasks
+        for (auto& future : futures) {
+            future.wait();
         }
         
         // Calculate aggregate statistics
         calculateAggregateStats();
         
+        spdlog::info("Batch backtest completed successfully");
         return m_results;
     }
     
     bool BatchBacktester::exportSummaryReport(const std::string& filename) const {
-        std::ofstream file(filename);
-        if (!file.is_open()) {
+        try {
+            std::ofstream file(filename);
+            if (!file.is_open()) {
+                spdlog::error("Failed to open file for writing: {}", filename);
+                return false;
+            }
+            
+            file << "# Batch Backtest Summary Report\n\n";
+            file << "## Aggregate Statistics\n";
+            file << "- Average Win Rate: " << std::fixed << std::setprecision(2) 
+                 << (m_results.averageWinRate * 100) << "%\n";
+            file << "- Average Profit Factor: " << std::fixed << std::setprecision(2) 
+                 << m_results.averageProfitFactor << "\n";
+            file << "- Average Max Drawdown: " << std::fixed << std::setprecision(2) 
+                 << (m_results.averageMaxDrawdown * 100) << "%\n";
+            file << "- Best Strategy: " << m_results.bestStrategy << "\n";
+            file << "- Worst Strategy: " << m_results.worstStrategy << "\n\n";
+            
+            file << "## Strategy Rankings\n";
+            std::vector<std::pair<std::string, double>> rankings;
+            for (const auto& [name, result] : m_results.results) {
+                rankings.emplace_back(name, result.totalReturn);
+            }
+            
+            std::sort(rankings.begin(), rankings.end(),
+                     [](const auto& a, const auto& b) { return a.second > b.second; });
+            
+            for (size_t i = 0; i < rankings.size(); ++i) {
+                file << (i + 1) << ". " << rankings[i].first 
+                     << " (Return: " << std::fixed << std::setprecision(2) 
+                     << (rankings[i].second * 100) << "%)\n";
+            }
+            
+            spdlog::info("Exported summary report to: {}", filename);
+            return true;
+            
+        } catch (const std::exception& e) {
+            spdlog::error("Error exporting summary report: {}", e.what());
             return false;
         }
-        
-        // Write summary report in Markdown format
-        file << "# Backtest Summary Report\n\n";
-        file << "Generated on: " << Utils::getFormattedTimestamp(std::time(nullptr)) << "\n\n";
-        
-        file << "## Overview\n\n";
-        file << "Strategies tested: " << m_results.strategyNames.size() << "\n\n";
-        file << "| Strategy | Win Rate | Profit Factor | Net Profit | Max Drawdown |\n";
-        file << "|----------|----------|--------------|------------|-------------|\n";
-        
-        for (const auto& name : m_results.strategyNames) {
-            const auto& result = m_results.results.at(name);
-            file << "| " << name 
-                 << " | " << std::fixed << std::setprecision(2) << result.winRate << "%" 
-                 << " | " << std::setprecision(2) << result.profitFactor 
-                 << " | $" << std::setprecision(2) << result.netProfit 
-                 << " | " << std::setprecision(2) << result.stats.maxDrawdownPercent << "%" 
-                 << " |\n";
-        }
-        
-        file << "\n## Aggregate Statistics\n\n";
-        file << "Average Win Rate: " << std::fixed << std::setprecision(2) << m_results.averageWinRate << "%\n\n";
-        file << "Average Profit Factor: " << std::setprecision(2) << m_results.averageProfitFactor << "\n\n";
-        file << "Average Max Drawdown: " << std::setprecision(2) << m_results.averageMaxDrawdown << "%\n\n";
-        file << "Best Performing Strategy: " << m_results.bestStrategy << "\n\n";
-        file << "Worst Performing Strategy: " << m_results.worstStrategy << "\n\n";
-        
-        file.close();
-        return true;
     }
     
     bool BatchBacktester::exportDetailedReport(const std::string& filename) const {
-        std::ofstream file(filename);
-        if (!file.is_open()) {
+        try {
+            std::ofstream file(filename);
+            if (!file.is_open()) {
+                spdlog::error("Failed to open file for writing: {}", filename);
+                return false;
+            }
+            
+            file << "# Detailed Batch Backtest Report\n\n";
+            file << generateMarkdownReport();
+            
+            spdlog::info("Exported detailed report to: {}", filename);
+            return true;
+            
+        } catch (const std::exception& e) {
+            spdlog::error("Error exporting detailed report: {}", e.what());
             return false;
         }
-        
-        // Write full markdown report
-        file << generateMarkdownReport();
-        
-        file.close();
-        return true;
     }
     
     std::string BatchBacktester::generateMarkdownReport() const {
         std::stringstream ss;
         
-        ss << "# Detailed Backtest Report\n\n";
-        ss << "Generated on: " << Utils::getFormattedTimestamp(std::time(nullptr)) << "\n\n";
-        
-        ss << "## Overview\n\n";
-        ss << "Strategies tested: " << m_results.strategyNames.size() << "\n\n";
-        ss << "Initial balance: $" << std::fixed << std::setprecision(2) << m_commonConfig.initialBalance << "\n\n";
-        ss << "Risk per trade: " << m_commonConfig.riskPerTrade << "%\n\n";
-        
-        // Aggregate stats section
+        // Add aggregate statistics section
         ss << "## Aggregate Statistics\n\n";
-        ss << "Average Win Rate: " << std::fixed << std::setprecision(2) << m_results.averageWinRate << "%\n\n";
-        ss << "Average Profit Factor: " << std::setprecision(2) << m_results.averageProfitFactor << "\n\n";
-        ss << "Average Max Drawdown: " << std::setprecision(2) << m_results.averageMaxDrawdown << "%\n\n";
-        ss << "Best Performing Strategy: " << m_results.bestStrategy << "\n\n";
-        ss << "Worst Performing Strategy: " << m_results.worstStrategy << "\n\n";
+        ss << "- Average Win Rate: " << std::fixed << std::setprecision(2) 
+           << (m_results.averageWinRate * 100) << "%\n";
+        ss << "- Average Profit Factor: " << std::fixed << std::setprecision(2) 
+           << m_results.averageProfitFactor << "\n";
+        ss << "- Average Max Drawdown: " << std::fixed << std::setprecision(2) 
+           << (m_results.averageMaxDrawdown * 100) << "%\n";
+        ss << "- Best Strategy: " << m_results.bestStrategy << "\n";
+        ss << "- Worst Strategy: " << m_results.worstStrategy << "\n\n";
         
-        // Comparison table
-        ss << "## Strategy Comparison\n\n";
-        ss << "| Strategy | Win Rate | Profit Factor | Net Profit | Max Drawdown | Sharpe Ratio |\n";
-        ss << "|----------|----------|--------------|------------|--------------|-------------|\n";
-        
-        for (const auto& name : m_results.strategyNames) {
-            const auto& result = m_results.results.at(name);
-            ss << "| " << name 
-               << " | " << std::fixed << std::setprecision(2) << result.winRate << "%" 
-               << " | " << std::setprecision(2) << result.profitFactor 
-               << " | $" << std::setprecision(2) << result.netProfit 
-               << " | " << std::setprecision(2) << result.stats.maxDrawdownPercent << "%" 
-               << " | " << std::setprecision(2) << result.stats.sharpeRatio
-               << " |\n";
+        // Add individual strategy sections
+        for (const auto& strategyName : m_results.strategyNames) {
+            const auto& result = m_results.results.at(strategyName);
+            ss << generateStrategySection(strategyName, result);
         }
         
-        // Individual strategy sections
-        ss << "\n## Individual Strategy Reports\n\n";
+        return ss.str();
+    }
+    
+    std::string BatchBacktester::generateStrategySection(const std::string& strategyName, 
+                                                        const BacktestResult& result) const {
+        std::stringstream ss;
         
-        for (const auto& name : m_results.strategyNames) {
-            ss << generateStrategySection(name, m_results.results.at(name));
+        ss << "## Strategy: " << strategyName << "\n\n";
+        ss << "### Performance Metrics\n";
+        ss << "- Total Return: " << std::fixed << std::setprecision(2) 
+           << (result.totalReturn * 100) << "%\n";
+        ss << "- Win Rate: " << std::fixed << std::setprecision(2) 
+           << (result.winRate * 100) << "%\n";
+        ss << "- Profit Factor: " << std::fixed << std::setprecision(2) 
+           << result.profitFactor << "\n";
+        ss << "- Max Drawdown: " << std::fixed << std::setprecision(2) 
+           << (result.maxDrawdown * 100) << "%\n";
+        ss << "- Sharpe Ratio: " << std::fixed << std::setprecision(2) 
+           << result.sharpeRatio << "\n";
+        ss << "- Number of Trades: " << result.numTrades << "\n\n";
+        
+        // Add equity curve image if available
+        auto it = m_results.equityCurveImages.find(strategyName);
+        if (it != m_results.equityCurveImages.end()) {
+            ss << "### Equity Curve\n";
+            ss << "![Equity Curve](" << it->second << ")\n\n";
         }
         
         return ss.str();
@@ -195,112 +271,53 @@ namespace Backtest {
     
     void BatchBacktester::clearStrategyFiles() {
         m_strategyFiles.clear();
+        m_results = BatchBacktestResults();
+        spdlog::info("Cleared strategy files and results");
     }
     
     const BatchBacktestResults& BatchBacktester::getResults() const {
         return m_results;
     }
     
-    std::string BatchBacktester::generateStrategySection(const std::string& strategyName, 
-                                                       const BacktestResult& result) const {
-        std::stringstream ss;
-        
-        ss << "### " << strategyName << "\n\n";
-        
-        // Basic metrics
-        ss << "#### Performance Metrics\n\n";
-        ss << "- **Total Trades**: " << result.totalTrades << "\n";
-        ss << "- **Win Rate**: " << std::fixed << std::setprecision(2) << result.winRate << "%\n";
-        ss << "- **Profit Factor**: " << std::setprecision(2) << result.profitFactor << "\n";
-        ss << "- **Net Profit**: $" << std::setprecision(2) << result.netProfit << "\n";
-        ss << "- **Max Drawdown**: " << std::setprecision(2) << result.stats.maxDrawdownPercent << "%\n";
-        ss << "- **Sharpe Ratio**: " << std::setprecision(2) << result.stats.sharpeRatio << "\n";
-        ss << "- **Longest Win Streak**: " << result.stats.longestWinStreak << "\n";
-        ss << "- **Longest Lose Streak**: " << result.stats.longestLoseStreak << "\n\n";
-        
-        // Equity curve
-        ss << "#### Equity Curve\n\n";
-        
-        // If we have an image path, link to it
-        auto it = m_results.equityCurveImages.find(strategyName);
-        if (it != m_results.equityCurveImages.end() && !it->second.empty()) {
-            ss << "![" << strategyName << " Equity Curve](" << it->second << ")\n\n";
-        } else {
-            // Otherwise, include an ASCII chart if we have curve data
-            if (!result.equityCurve.empty()) {
-                ss << "```\n" << Utils::generateASCIIChart(result.equityCurve, 70, 15) << "\n```\n\n";
-            } else {
-                ss << "No equity curve data available.\n\n";
-            }
-        }
-        
-        // Monthly/periodic breakdown could be added here
-        
-        ss << "---\n\n";
-        
-        return ss.str();
-    }
-    
     void BatchBacktester::calculateAggregateStats() {
-        if (m_results.strategyNames.empty()) {
+        if (m_results.results.empty()) {
+            spdlog::warn("No results available for aggregate statistics");
             return;
         }
         
         double totalWinRate = 0.0;
         double totalProfitFactor = 0.0;
         double totalMaxDrawdown = 0.0;
+        double bestReturn = -std::numeric_limits<double>::infinity();
+        double worstReturn = std::numeric_limits<double>::infinity();
         
-        // Variables to track best and worst performance
-        double bestNetProfit = std::numeric_limits<double>::lowest();
-        double worstNetProfit = std::numeric_limits<double>::max();
-        
-        for (const auto& name : m_results.strategyNames) {
-            const auto& result = m_results.results.at(name);
-            
-            // Accumulate statistics
+        for (const auto& [strategyName, result] : m_results.results) {
             totalWinRate += result.winRate;
             totalProfitFactor += result.profitFactor;
-            totalMaxDrawdown += result.stats.maxDrawdownPercent;
+            totalMaxDrawdown += result.maxDrawdown;
             
-            // Check if this is the best or worst strategy
-            if (result.netProfit > bestNetProfit) {
-                bestNetProfit = result.netProfit;
-                m_results.bestStrategy = name;
+            if (result.totalReturn > bestReturn) {
+                bestReturn = result.totalReturn;
+                m_results.bestStrategy = strategyName;
             }
-            
-            if (result.netProfit < worstNetProfit) {
-                worstNetProfit = result.netProfit;
-                m_results.worstStrategy = name;
+            if (result.totalReturn < worstReturn) {
+                worstReturn = result.totalReturn;
+                m_results.worstStrategy = strategyName;
             }
         }
         
-        // Calculate averages
-        size_t numStrategies = m_results.strategyNames.size();
+        size_t numStrategies = m_results.results.size();
         m_results.averageWinRate = totalWinRate / numStrategies;
         m_results.averageProfitFactor = totalProfitFactor / numStrategies;
         m_results.averageMaxDrawdown = totalMaxDrawdown / numStrategies;
+        
+        spdlog::info("Calculated aggregate statistics across {} strategies", numStrategies);
     }
     
     std::string BatchBacktester::generateEquityCurveImage(const std::string& strategyName, 
                                                         const BacktestResult& result) {
-        // Placeholder implementation - in a real system, this would generate
-        // actual image files using a plotting library
-        
-        // For now, we'll just simulate this by creating a filename
-        // In a real implementation, you would:
-        // 1. Use a library like MatPlot++ or Cairo to draw the equity curve
-        // 2. Save the image to a file
-        // 3. Return the path to the saved image
-        
-        std::string imagePath = "equity_curves/" + strategyName + "_equity.png";
-        
-        // Placeholder note that in this stub implementation, we're not actually creating the file
-        std::cout << "Note: Equity curve image generation is stubbed. Would create: " 
-                  << imagePath << std::endl;
-        
-        // For a real implementation, return the path to the created image
-        // For this stub, we'll return an empty string which will cause the report
-        // to fall back to ASCII charts
-        return "";
+        // TODO: Implement actual image generation using a plotting library
+        // For now, return a placeholder path
+        return "equity_curves/" + strategyName + ".png";
     }
 } 
