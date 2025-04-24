@@ -11,211 +11,177 @@
 #include <fstream>
 #include <iostream>
 
-Trade::Trade() : 
-    m_timestamp(std::time(nullptr)), 
-    m_calculator(std::make_unique<TradeCalculator>()),
-    m_params(std::make_unique<TradeParameters>()),
-    m_results(std::make_unique<TradeResults>()),
-    m_outcome(TradeOutcome::Pending),
-    m_tp1Percentage(60.0),
-    m_tp2Percentage(40.0),
-    m_slInputType(InputType::Pips),
-    m_tpInputType(InputType::Pips)
-{
+Trade::Trade() : m_outcome(TradeOutcome::Pending) {
+    m_calculator = std::make_unique<TradeCalculator>();
+    m_params = std::make_unique<TradeParameters>();
+    m_results = std::make_unique<TradeResults>();
     generateId();
+    m_timestamp = std::time(nullptr);
 }
 
 Trade::~Trade() = default;
 
-void Trade::generateId() {
-    // Generate a simple random ID using timestamp + random number
-    auto now = std::chrono::system_clock::now();
-    auto timestamp = std::chrono::system_clock::to_time_t(now);
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
-    
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distrib(1000, 9999);
-    
-    std::stringstream ss;
-    ss << "TRD-" << std::put_time(std::localtime(&timestamp), "%Y%m%d-%H%M%S") 
-       << "-" << ms.count() << "-" << distrib(gen);
-    
-    m_id = ss.str();
+void Trade::validateAccountBalance(double balance) const {
+    if (balance <= 0.0) {
+        throw TradeError("Account balance must be greater than 0");
+    }
 }
 
-// Setup methods
-void Trade::setAccountBalance(double balance) {
-    if (balance <= 0) {
-        throw std::invalid_argument("Account balance must be positive");
+void Trade::validateRiskPercentage(double riskPercent) const {
+    if (riskPercent <= 0.0 || riskPercent > 100.0) {
+        throw TradeError("Risk percentage must be between 0 and 100");
     }
+}
+
+void Trade::validatePrice(double price) const {
+    if (price <= 0.0) {
+        throw TradeError("Price must be greater than 0");
+    }
+}
+
+void Trade::validatePercentage(double percentage) const {
+    if (percentage <= 0.0 || percentage > 100.0) {
+        throw TradeError("Percentage must be between 0 and 100");
+    }
+}
+
+void Trade::validateInstrumentType(int type) const {
+    if (type < 0 || type > 2) {
+        throw TradeError("Invalid instrument type");
+    }
+}
+
+void Trade::validateLotSizeType(int type) const {
+    if (type < 0 || type > 2) {
+        throw TradeError("Invalid lot size type");
+    }
+}
+
+void Trade::validateContractSize(double size) const {
+    if (size < 0.0) {
+        throw TradeError("Contract size cannot be negative");
+    }
+}
+
+void Trade::setAccountBalance(double balance) {
+    validateAccountBalance(balance);
     m_params->accountBalance = balance;
 }
 
 void Trade::setRiskPercentage(double riskPercent) {
-    if (riskPercent <= 0 || riskPercent > 100) {
-        throw std::invalid_argument("Risk percentage must be between 0 and 100");
-    }
+    validateRiskPercentage(riskPercent);
     m_params->riskPercent = riskPercent;
 }
 
 void Trade::setEntryPrice(double price) {
-    if (price <= 0) {
-        throw std::invalid_argument("Entry price must be positive");
-    }
+    validatePrice(price);
     m_params->entryPrice = price;
 }
 
-// Flexible input methods
 void Trade::setStopLoss(double value, InputType type) {
-    if (value <= 0) {
-        throw std::invalid_argument("Stop loss value must be positive");
-    }
-    
-    m_slInputType = type;
-    
     if (type == InputType::Pips) {
+        if (value <= 0.0) {
+            throw TradeError("Stop loss pips must be greater than 0");
+        }
         m_params->stopLossInPips = value;
         m_params->isStopLossPriceOverride = false;
     } else {
+        validatePrice(value);
         m_params->stopLossPrice = value;
         m_params->isStopLossPriceOverride = true;
-        // Calculate pips from price for internal use
-        if (m_params->entryPrice > 0) {
-            m_params->stopLossInPips = convertPriceToPoints(m_params->entryPrice, value);
-        }
     }
+    m_slInputType = type;
 }
 
 void Trade::setTakeProfit(double value, InputType type) {
-    if (value <= 0) {
-        throw std::invalid_argument("Take profit value must be positive");
-    }
-    
-    m_tpInputType = type;
-    
     if (type == InputType::Pips) {
+        if (value <= 0.0) {
+            throw TradeError("Take profit pips must be greater than 0");
+        }
         m_params->takeProfitInPips = value;
-        // Calculate RR ratio
-        if (m_params->stopLossInPips > 0) {
-            m_params->riskRewardRatio = value / m_params->stopLossInPips;
-        }
     } else {
-        // Calculate pips from price
-        if (m_params->entryPrice > 0) {
-            m_params->takeProfitInPips = convertPriceToPoints(m_params->entryPrice, value);
-            if (m_params->stopLossInPips > 0) {
-                m_params->riskRewardRatio = m_params->takeProfitInPips / m_params->stopLossInPips;
-            }
-        }
+        validatePrice(value);
+        m_params->takeProfitPrice = value;
     }
+    m_tpInputType = type;
 }
 
 void Trade::setTakeProfit1(double value, InputType type, double percentage) {
-    setTakeProfit(value, type);
+    validatePercentage(percentage);
     m_tp1Percentage = percentage;
+    setTakeProfit(value, type);
 }
 
 void Trade::setTakeProfit2(double value, InputType type, double percentage) {
-    // For TP2, we'll store the full value but use percentage for calculation
-    if (m_tpInputType == InputType::Pips) {
-        // Convert to combined TP value based on percentage
-        double fullTp = value / (percentage / 100.0);
-        setTakeProfit(fullTp, type);
-    } else {
-        // For price, we'll handle this differently in calculateWithMultipleTargets
-        setTakeProfit(value, type);
-    }
+    validatePercentage(percentage);
     m_tp2Percentage = percentage;
+    setTakeProfit(value, type);
 }
 
 void Trade::setInstrumentType(int instrumentTypeIndex) {
+    validateInstrumentType(instrumentTypeIndex);
     m_params->instrumentType = static_cast<InstrumentType>(instrumentTypeIndex);
 }
 
 void Trade::setLotSizeType(int lotSizeTypeIndex) {
+    validateLotSizeType(lotSizeTypeIndex);
     m_params->lotSizeType = static_cast<LotSizeType>(lotSizeTypeIndex);
 }
 
 void Trade::setContractSize(double size) {
-    if (size < 0) {
-        throw std::invalid_argument("Contract size cannot be negative");
-    }
+    validateContractSize(size);
     m_params->contractSize = size;
 }
 
-// Calculation methods
 bool Trade::calculate() {
     try {
         *m_results = m_calculator->calculateTrade(*m_params);
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error in trade calculation: " << e.what() << std::endl;
+        Utils::printError("Calculation error: " + std::string(e.what()));
         return false;
     }
 }
 
 bool Trade::calculateWithMultipleTargets() {
     try {
-        // First calculate the basic results
-        *m_results = m_calculator->calculateTrade(*m_params);
-        
-        // Then calculate multiple targets
-        TradeResults multiResults = m_calculator->calculateMultipleTargets(
-            *m_params, m_tp1Percentage, m_tp2Percentage);
-        
-        // Copy multi-target specific results
-        m_results->hasMultipleTargets = true;
-        m_results->tp1Price = multiResults.tp1Price;
-        m_results->tp2Price = multiResults.tp2Price;
-        m_results->tp1Amount = multiResults.tp1Amount;
-        m_results->tp2Amount = multiResults.tp2Amount;
-        
+        *m_results = m_calculator->calculateMultipleTargets(*m_params, m_tp1Percentage, m_tp2Percentage);
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error in multiple targets calculation: " << e.what() << std::endl;
+        Utils::printError("Calculation error: " + std::string(e.what()));
         return false;
     }
 }
 
-// Simulation methods
 void Trade::simulateOutcome(TradeOutcome outcome) {
     m_outcome = outcome;
-}
-
-double Trade::getUpdatedAccountBalance() const {
-    double updatedBalance = m_params->accountBalance;
+    double profitLoss = 0.0;
     
-    switch (m_outcome) {
+    switch (outcome) {
         case TradeOutcome::LossAtSL:
-            updatedBalance -= m_results->riskAmount;
+            profitLoss = -m_results->riskAmount;
             break;
         case TradeOutcome::WinAtTP1:
-            if (m_results->hasMultipleTargets) {
-                updatedBalance += m_results->tp1Amount;
-            } else {
-                updatedBalance += m_results->rewardAmount;
-            }
+            profitLoss = m_results->tp1Amount;
             break;
         case TradeOutcome::WinAtTP2:
-            if (m_results->hasMultipleTargets) {
-                updatedBalance += m_results->tp2Amount;
-            } else {
-                updatedBalance += m_results->rewardAmount;
-            }
+            profitLoss = m_results->tp2Amount;
             break;
         case TradeOutcome::BreakEven:
-            // No change to balance
+            profitLoss = 0.0;
             break;
         default:
-            // No change for pending
+            profitLoss = 0.0;
             break;
     }
     
-    return updatedBalance;
+    m_params->accountBalance += profitLoss;
 }
 
-// Access methods
+double Trade::getUpdatedAccountBalance() const {
+    return m_params->accountBalance;
+}
+
 TradeParameters Trade::getParameters() const {
     return *m_params;
 }
@@ -230,162 +196,127 @@ TradeOutcome Trade::getOutcome() const {
 
 std::string Trade::getOutcomeAsString() const {
     switch (m_outcome) {
-        case TradeOutcome::Pending:
-            return "Pending";
         case TradeOutcome::LossAtSL:
-            return "Loss at SL";
+            return "Loss at Stop Loss";
         case TradeOutcome::WinAtTP1:
-            return "Win at TP1";
+            return "Win at Take Profit 1";
         case TradeOutcome::WinAtTP2:
-            return "Win at TP2";
+            return "Win at Take Profit 2";
         case TradeOutcome::BreakEven:
             return "Break Even";
         default:
-            return "Unknown";
+            return "Pending";
     }
 }
 
-// Utility methods
 bool Trade::validate() const {
-    // Check if all required parameters are set
-    if (m_params->accountBalance <= 0) return false;
-    if (m_params->riskPercent <= 0) return false;
-    if (m_params->entryPrice <= 0) return false;
-    
-    // Either stop loss in pips or price must be set
-    if (m_params->isStopLossPriceOverride) {
-        if (m_params->stopLossPrice <= 0) return false;
-    } else {
-        if (m_params->stopLossInPips <= 0) return false;
+    try {
+        validateAccountBalance(m_params->accountBalance);
+        validateRiskPercentage(m_params->riskPercent);
+        validatePrice(m_params->entryPrice);
+        
+        if (m_params->isStopLossPriceOverride) {
+            validatePrice(m_params->stopLossPrice);
+        } else {
+            if (m_params->stopLossInPips <= 0.0) {
+                throw TradeError("Stop loss pips must be greater than 0");
+            }
+        }
+        
+        if (m_tpInputType == InputType::Pips) {
+            if (m_params->takeProfitInPips <= 0.0) {
+                throw TradeError("Take profit pips must be greater than 0");
+            }
+        } else {
+            validatePrice(m_params->takeProfitPrice);
+        }
+        
+        validateInstrumentType(static_cast<int>(m_params->instrumentType));
+        validateLotSizeType(static_cast<int>(m_params->lotSizeType));
+        validateContractSize(m_params->contractSize);
+        
+        return true;
+    } catch (const TradeError& e) {
+        Utils::printError(e.what());
+        return false;
     }
-    
-    // Take profit must be set
-    if (m_params->takeProfitInPips <= 0) return false;
-    
-    return true;
 }
 
 std::string Trade::getSummary() const {
     std::stringstream ss;
     ss << std::fixed << std::setprecision(2);
     
-    // Basic trade info
-    ss << "Trade ID: " << m_id << "\n";
-    ss << "Date: " << Utils::getFormattedTimestamp(m_timestamp) << "\n\n";
-    
-    // Parameters
+    ss << "Trade Summary:\n";
+    ss << "ID: " << m_id << "\n";
+    ss << "Timestamp: " << std::ctime(&m_timestamp);
     ss << "Account Balance: $" << m_params->accountBalance << "\n";
-    ss << "Risk: " << m_params->riskPercent << "% ($" << m_results->riskAmount << ")\n";
+    ss << "Risk Percentage: " << m_params->riskPercent << "%\n";
     ss << "Entry Price: " << m_params->entryPrice << "\n";
-    ss << "Stop Loss: ";
-    if (m_slInputType == InputType::Pips) {
-        ss << m_params->stopLossInPips << " pips (" << m_results->stopLossPrice << ")\n";
+    
+    if (m_params->isStopLossPriceOverride) {
+        ss << "Stop Loss Price: " << m_params->stopLossPrice << "\n";
     } else {
-        ss << m_results->stopLossPrice << " (";
-        ss << m_params->stopLossInPips << " pips)\n";
+        ss << "Stop Loss Pips: " << m_params->stopLossInPips << "\n";
     }
     
-    // Take profit info
+    if (m_tpInputType == InputType::Pips) {
+        ss << "Take Profit Pips: " << m_params->takeProfitInPips << "\n";
+    } else {
+        ss << "Take Profit Price: " << m_params->takeProfitPrice << "\n";
+    }
+    
+    ss << "Position Size: " << m_results->positionSize << "\n";
+    ss << "Risk Amount: $" << m_results->riskAmount << "\n";
+    ss << "Reward Amount: $" << m_results->rewardAmount << "\n";
+    ss << "Risk-Reward Ratio: " << m_results->riskRewardRatio << "\n";
+    
+    if (m_results->hasBreakEvenInfo) {
+        ss << "Break Even Price: " << m_results->breakEvenPrice << "\n";
+        ss << "Break Even Pips: " << m_results->breakEvenPips << "\n";
+    }
+    
     if (m_results->hasMultipleTargets) {
-        ss << "TP1: " << m_results->tp1Price << " (";
-        ss << m_tp1Percentage << "%, $" << m_results->tp1Amount << ")\n";
-        ss << "TP2: " << m_results->tp2Price << " (";
-        ss << m_tp2Percentage << "%, $" << m_results->tp2Amount << ")\n";
-    } else {
-        ss << "Take Profit: ";
-        if (m_tpInputType == InputType::Pips) {
-            ss << m_params->takeProfitInPips << " pips (" << m_results->takeProfitPrice << ")\n";
-        } else {
-            ss << m_results->takeProfitPrice << " (";
-            ss << m_params->takeProfitInPips << " pips)\n";
-        }
-        ss << "Potential Reward: $" << m_results->rewardAmount << "\n";
+        ss << "TP1 Price: " << m_results->tp1Price << "\n";
+        ss << "TP2 Price: " << m_results->tp2Price << "\n";
+        ss << "TP1 Amount: $" << m_results->tp1Amount << "\n";
+        ss << "TP2 Amount: $" << m_results->tp2Amount << "\n";
     }
     
-    ss << "Risk-Reward Ratio: 1:" << m_results->riskRewardRatio << "\n";
-    ss << "Position Size: " << m_results->positionSize << " lots\n";
-    ss << "Instrument: " << Utils::getInstrumentTypeString(m_params->instrumentType) << "\n";
-    ss << "Lot Type: " << Utils::getLotSizeTypeString(m_params->lotSizeType) << "\n";
-    
-    // Outcome if simulated
-    if (m_outcome != TradeOutcome::Pending) {
-        ss << "\nOutcome: " << getOutcomeAsString() << "\n";
-        ss << "Updated Balance: $" << getUpdatedAccountBalance() << "\n";
-        double pnl = getUpdatedAccountBalance() - m_params->accountBalance;
-        ss << "P&L: " << (pnl >= 0 ? "+" : "") << "$" << pnl << " (";
-        ss << (pnl >= 0 ? "+" : "") << (pnl / m_params->accountBalance * 100) << "%)\n";
-    }
+    ss << "Outcome: " << getOutcomeAsString() << "\n";
     
     return ss.str();
 }
 
 bool Trade::save(const std::string& filePath, bool append) const {
-    // Create the trade data as a CSV line
-    std::stringstream ss;
-    
-    ss << m_id << ","
-       << Utils::getFormattedTimestamp(m_timestamp) << ","
-       << m_params->accountBalance << ","
-       << m_params->riskPercent << ","
-       << m_results->riskAmount << ","
-       << m_params->entryPrice << ","
-       << m_results->stopLossPrice << ",";
-    
-    if (m_results->hasMultipleTargets) {
-        ss << m_results->tp1Price << "," << m_results->tp2Price << ",";
-    } else {
-        ss << m_results->takeProfitPrice << ",0,";
-    }
-    
-    ss << m_results->positionSize << ","
-       << m_results->riskRewardRatio << ","
-       << Utils::getInstrumentTypeString(m_params->instrumentType) << ","
-       << Utils::getLotSizeTypeString(m_params->lotSizeType) << ",";
-    
-    // Add outcome and P&L
-    ss << getOutcomeAsString() << ",";
-    
-    double pnl = 0.0;
-    if (m_outcome != TradeOutcome::Pending) {
-        pnl = getUpdatedAccountBalance() - m_params->accountBalance;
-    }
-    ss << pnl << "," << getUpdatedAccountBalance();
-    
-    // Write to file
-    std::ofstream file;
-    if (append) {
-        file.open(filePath, std::ios::app);
-    } else {
-        file.open(filePath);
-    }
-    
-    if (!file.is_open()) {
-        std::cerr << "Error: Unable to open file " << filePath << " for writing." << std::endl;
+    try {
+        std::ofstream file;
+        if (append) {
+            file.open(filePath, std::ios::app);
+        } else {
+            file.open(filePath);
+        }
+        
+        if (!file.is_open()) {
+            throw TradeError("Failed to open file for writing");
+        }
+        
+        file << getSummary() << "\n";
+        file.close();
+        return true;
+    } catch (const std::exception& e) {
+        Utils::printError("Failed to save trade: " + std::string(e.what()));
         return false;
     }
-    
-    // If this is a new file, add header
-    if (file.tellp() == 0) {
-        file << "ID,Timestamp,AccountBalance,RiskPercent,RiskAmount,EntryPrice,SLPrice,"
-             << "TP1Price,TP2Price,PositionSize,RRRatio,Instrument,LotType,Outcome,PnL,UpdatedBalance"
-             << std::endl;
-    }
-    
-    file << ss.str() << std::endl;
-    file.close();
-    
-    return true;
 }
 
 void Trade::reset() {
     m_params = std::make_unique<TradeParameters>();
     m_results = std::make_unique<TradeResults>();
     m_outcome = TradeOutcome::Pending;
-    m_timestamp = std::time(nullptr);
     generateId();
+    m_timestamp = std::time(nullptr);
 }
 
-// Time and identification
 std::time_t Trade::getTimestamp() const {
     return m_timestamp;
 }
@@ -398,29 +329,25 @@ std::string Trade::getId() const {
     return m_id;
 }
 
-// Helper methods
-double Trade::convertPriceToPoints(double entryPrice, double targetPrice) const {
-    double diff = std::abs(targetPrice - entryPrice);
+void Trade::generateId() {
+    auto now = std::chrono::system_clock::now();
+    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()
+    );
     
-    switch (m_params->instrumentType) {
-        case InstrumentType::Forex:
-            return diff * 10000.0;
-        case InstrumentType::Gold:
-        case InstrumentType::Indices:
-            return diff * 10.0;
-        default:
-            return diff * 10000.0;
-    }
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 9999);
+    
+    std::stringstream ss;
+    ss << "TRADE_" << now_ms.count() << "_" << std::setfill('0') << std::setw(4) << dis(gen);
+    m_id = ss.str();
+}
+
+double Trade::convertPriceToPoints(double entryPrice, double targetPrice) const {
+    return std::abs(targetPrice - entryPrice) * 10000.0;
 }
 
 double Trade::convertPipsToPrice(double entryPrice, double pips) const {
-    switch (m_params->instrumentType) {
-        case InstrumentType::Forex:
-            return entryPrice + (pips / 10000.0);
-        case InstrumentType::Gold:
-        case InstrumentType::Indices:
-            return entryPrice + (pips / 10.0);
-        default:
-            return entryPrice + (pips / 10000.0);
-    }
+    return entryPrice + (pips / 10000.0);
 } 

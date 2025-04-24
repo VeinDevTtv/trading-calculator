@@ -5,6 +5,7 @@
 #include <vector>
 #include <ctime>
 #include <memory>
+#include <stdexcept>
 
 // Forward declarations
 class TradeCalculator;
@@ -22,6 +23,11 @@ enum class TradeOutcome {
 enum class InputType {
     Pips,
     Price
+};
+
+class TradeError : public std::runtime_error {
+public:
+    explicit TradeError(const std::string& message) : std::runtime_error(message) {}
 };
 
 class Trade {
@@ -89,6 +95,15 @@ private:
     double convertPriceToPoints(double entryPrice, double targetPrice) const;
     double convertPipsToPrice(double entryPrice, double pips) const;
     void generateId();
+    
+    // Validation methods
+    void validateAccountBalance(double balance) const;
+    void validateRiskPercentage(double riskPercent) const;
+    void validatePrice(double price) const;
+    void validatePercentage(double percentage) const;
+    void validateInstrumentType(int type) const;
+    void validateLotSizeType(int type) const;
+    void validateContractSize(double size) const;
 };
 
 #endif // TRADE_H 

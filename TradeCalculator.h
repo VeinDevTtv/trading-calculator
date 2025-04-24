@@ -3,6 +3,8 @@
 
 #include <string>
 #include <ctime>
+#include <unordered_map>
+#include <mutex>
 
 // Enums for instrument and lot size types
 enum class InstrumentType {
@@ -72,6 +74,9 @@ public:
     TradeResults calculateMultipleTargets(const TradeParameters& params, 
                                          double tp1Percent, double tp2Percent);
     
+    // Clear cache
+    void clearCache();
+    
 private:
     // Helper methods
     double calculatePipValue(const TradeParameters& params);
@@ -79,9 +84,38 @@ private:
     double calculateTakeProfitPrice(const TradeParameters& params);
     double calculateBreakEvenPoint(const TradeParameters& params);
     
+    // Caching
+    struct CacheKey {
+        InstrumentType instrumentType;
+        LotSizeType lotSizeType;
+        double contractSize;
+        
+        bool operator==(const CacheKey& other) const {
+            return instrumentType == other.instrumentType &&
+                   lotSizeType == other.lotSizeType &&
+                   contractSize == other.contractSize;
+        }
+    };
+    
+    struct CacheKeyHash {
+        std::size_t operator()(const CacheKey& key) const {
+            return std::hash<int>()(static_cast<int>(key.instrumentType)) ^
+                   (std::hash<int>()(static_cast<int>(key.lotSizeType)) << 1) ^
+                   (std::hash<double>()(key.contractSize) << 2);
+        }
+    };
+    
+    std::unordered_map<CacheKey, double, CacheKeyHash> m_pipValueCache;
+    std::mutex m_cacheMutex;
+    
     // Default fee/spread settings
     double m_feePercentage = 0.0;
     double m_spreadPips = 0.0;
+    
+    // Constants
+    static constexpr double DEFAULT_PIP_VALUE = 0.0001;
+    static constexpr double GOLD_PIP_VALUE = 0.01;
+    static constexpr double INDICES_PIP_VALUE = 1.0;
 };
 
 #endif // TRADE_CALCULATOR_H 

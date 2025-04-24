@@ -4,6 +4,8 @@
 #include "TradeCalculator.h"
 #include <string>
 #include <vector>
+#include <iostream>
+#include <limits>
 
 namespace Utils {
     // File operations
@@ -47,6 +49,53 @@ namespace Utils {
     
     // ASCII chart generation
     std::string generateASCIIChart(const std::vector<double>& values, int width = 50, int height = 10);
+    
+    template<typename T>
+    static T getValidInput(const std::string& prompt, T min, T max, bool hasRange) {
+        T value;
+        bool validInput = false;
+        
+        while (!validInput) {
+            std::cout << prompt;
+            if (std::cin >> value) {
+                if (!hasRange || (value >= min && value <= max)) {
+                    validInput = true;
+                } else {
+                    std::cout << "Error: Value must be between " << min << " and " << max << std::endl;
+                }
+            } else {
+                std::cin.clear();
+                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                std::cout << "Error: Invalid input. Please enter a valid number." << std::endl;
+            }
+        }
+        
+        // Clear any remaining input
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        return value;
+    }
+    
+    static bool isNumeric(const std::string& str) {
+        if (str.empty()) return false;
+        
+        bool hasDecimal = false;
+        for (size_t i = 0; i < str.length(); i++) {
+            if (i == 0 && str[i] == '-') continue;
+            if (str[i] == '.' && !hasDecimal) {
+                hasDecimal = true;
+                continue;
+            }
+            if (!std::isdigit(str[i])) return false;
+        }
+        return true;
+    }
+    
+    static void handleError(const std::string& message, bool fatal = false) {
+        std::cerr << "Error: " << message << std::endl;
+        if (fatal) {
+            std::exit(1);
+        }
+    }
 }
 
 #endif // UTILS_H 
