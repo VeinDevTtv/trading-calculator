@@ -180,6 +180,7 @@ add_executable(unit_tests
     Utils.cpp
     Backtest/Backtester.cpp
     Backtest/BatchBacktester.cpp
+    Backtest/EquityCurveGenerator.cpp
 )
 
 target_link_libraries(unit_tests PRIVATE 
