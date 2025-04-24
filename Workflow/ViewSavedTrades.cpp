@@ -7,90 +7,85 @@
 
 namespace Workflow {
     void viewSavedTrades(SessionManager& sessionManager) {
-        Utils::clearScreen();
-        UI::displayHeader("SAVED TRADES");
+        Utils::printHeader("SAVED TRADES");
         
-        // Get all trades
         auto trades = sessionManager.getAllTrades();
-        
         if (trades.empty()) {
-            std::cout << "No saved trades found.\n";
+            Utils::printInfo("No trades found in the current session.");
             return;
         }
         
-        // Display summary of trades
-        std::cout << "Found " << trades.size() << " trades:\n\n";
-        
-        // Header
-        std::cout << std::left << std::setw(8) << "ID" 
-                 << std::setw(20) << "Date/Time" 
-                 << std::setw(12) << "Entry" 
-                 << std::setw(12) << "SL" 
-                 << std::setw(12) << "TP" 
-                 << std::setw(10) << "Outcome" 
-                 << std::setw(12) << "P&L" 
-                 << std::endl;
-        
-        std::cout << std::string(80, '-') << std::endl;
-        
-        // Display each trade's basic info
+        int count = 1;
         for (const auto& trade : trades) {
+            std::cout << count << ". ";
+            Utils::printColorText("Trade: " + trade->getId() + "\n", Utils::COLOR_CYAN);
+            
             auto params = trade->getParameters();
             auto results = trade->getResults();
+            std::string outcome = trade->getOutcomeAsString();
             
-            // Format trade ID (first 6 chars)
-            std::string id = trade->getId().substr(0, 6);
+            std::cout << std::fixed << std::setprecision(2);
+            std::cout << "   Date: " << Utils::getFormattedTimestamp(trade->getTimestamp()) << "\n";
+            std::cout << "   Entry: " << params.entryPrice;
             
-            // Format date/time
-            std::string timestamp = Utils::getFormattedTimestamp(trade->getTimestamp());
+            // Color-coded SL and TP
+            std::cout << " | SL: ";
+            Utils::printColorText(std::to_string(results.stopLossPrice), Utils::COLOR_RED);
             
-            // Format P&L
-            std::string pnl;
-            if (trade->getOutcome() == TradeOutcome::WinAtTP1 || 
-                trade->getOutcome() == TradeOutcome::WinAtTP2) {
-                pnl = "+$" + std::to_string(results.rewardAmount);
-            } else if (trade->getOutcome() == TradeOutcome::LossAtSL) {
-                pnl = "-$" + std::to_string(results.riskAmount);
+            if (results.hasMultipleTargets) {
+                std::cout << " | TP1: ";
+                Utils::printColorText(std::to_string(results.tp1Price), Utils::COLOR_GREEN);
+                std::cout << " | TP2: ";
+                Utils::printColorText(std::to_string(results.tp2Price), Utils::COLOR_GREEN);
             } else {
-                pnl = "$0.00";
+                std::cout << " | TP: ";
+                Utils::printColorText(std::to_string(results.takeProfitPrice), Utils::COLOR_GREEN);
             }
             
-            // Display the row
-            std::cout << std::left << std::setw(8) << id
-                     << std::setw(20) << timestamp
-                     << std::fixed << std::setprecision(5)
-                     << std::setw(12) << params.entryPrice
-                     << std::setw(12) << results.stopLossPrice
-                     << std::setw(12) << results.takeProfitPrice
-                     << std::setw(10) << trade->getOutcomeAsString()
-                     << std::setw(12) << pnl
-                     << std::endl;
+            std::cout << "\n";
+            std::cout << "   Risk: $" << results.riskAmount;
+            std::cout << " | Reward: $" << results.rewardAmount;
+            std::cout << " | RR: 1:" << results.riskRewardRatio << "\n";
+            
+            if (trade->getOutcome() != TradeOutcome::Pending) {
+                std::cout << "   Outcome: ";
+                
+                if (outcome == "Loss at SL") {
+                    Utils::printColorText(outcome, Utils::COLOR_RED);
+                } else if (outcome == "Win at TP1" || outcome == "Win at TP2") {
+                    Utils::printColorText(outcome, Utils::COLOR_GREEN);
+                } else {
+                    Utils::printColorText(outcome, Utils::COLOR_YELLOW);
+                }
+                
+                double pnl = trade->getUpdatedAccountBalance() - params.accountBalance;
+                std::cout << " | P&L: ";
+                if (pnl >= 0) {
+                    Utils::printColorText("+$" + std::to_string(pnl), Utils::COLOR_GREEN);
+                } else {
+                    Utils::printColorText("-$" + std::to_string(std::abs(pnl)), Utils::COLOR_RED);
+                }
+                std::cout << "\n";
+            } else {
+                std::cout << "   Outcome: Pending\n";
+            }
+            
+            std::cout << std::endl;
+            count++;
         }
         
-        std::cout << std::endl;
+        // Option to view detailed trade
+        std::cout << "Would you like to view detailed information for a specific trade?\n";
+        char viewDetailed = Utils::getYesNoInput("View detailed trade? (y/n): ");
         
-        // Option to view detailed info for a specific trade
-        char viewDetail = Utils::getYesNoInput("View detailed trade info? (y/n): ");
-        if (viewDetail == 'y') {
-            std::string tradeId;
-            std::cout << "Enter trade ID: ";
-            std::cin >> tradeId;
+        if (viewDetailed == 'y') {
+            int tradeIndex = Utils::getValidInput<int>("Enter trade number: ", 1, static_cast<int>(trades.size()), true);
             
-            // Find the trade with matching ID
-            bool found = false;
-            for (const auto& trade : trades) {
-                if (trade->getId().find(tradeId) == 0) {
-                    Utils::clearScreen();
-                    UI::displayHeader("TRADE DETAILS");
-                    std::cout << trade->getSummary() << std::endl;
-                    found = true;
-                    break;
-                }
-            }
+            Utils::clearScreen();
+            Utils::printHeader("TRADE DETAILS");
             
-            if (!found) {
-                Utils::printError("Trade not found.");
-            }
+            auto selectedTrade = trades[tradeIndex - 1];
+            std::cout << selectedTrade->getSummary() << std::endl;
         }
     }
 } 

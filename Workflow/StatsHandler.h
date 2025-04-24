@@ -1,7 +1,7 @@
-#ifndef WORKFLOW_STATS_HANDLER_H
-#define WORKFLOW_STATS_HANDLER_H
+#ifndef STATS_HANDLER_H
+#define STATS_HANDLER_H
 
-#include "../SessionManager.h"
+#include "SessionManager.h"
 
 namespace Workflow {
     /**
@@ -11,4 +11,4 @@ namespace Workflow {
     void sessionStatsMode(SessionManager& sessionManager);
 }
 
-#endif // WORKFLOW_STATS_HANDLER_H 
+#endif // STATS_HANDLER_H 

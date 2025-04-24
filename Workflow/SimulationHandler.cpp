@@ -8,115 +8,84 @@
 
 namespace Workflow {
     void simulationMode(SessionManager& sessionManager) {
+        Utils::printHeader("SIMULATION MODE");
+        
+        auto lastTrade = sessionManager.getLastTrade();
+        if (!lastTrade) {
+            Utils::printError("No trades available for simulation. Please create a trade first.");
+            return;
+        }
+        
+        Utils::printInfo("Last Trade Summary:");
+        std::cout << lastTrade->getSummary() << std::endl;
+        
+        Utils::printInfo("Select simulation outcome:");
+        std::cout << "1. Loss at Stop Loss\n";
+        std::cout << "2. Win at Take Profit\n";
+        
+        if (lastTrade->getResults().hasMultipleTargets) {
+            std::cout << "3. Win at TP1 only\n";
+            std::cout << "4. Win at TP2\n";
+            std::cout << "5. Break Even\n";
+        } else {
+            std::cout << "3. Break Even\n";
+        }
+        
+        int outcomeChoice;
+        if (lastTrade->getResults().hasMultipleTargets) {
+            outcomeChoice = Utils::getValidInput<int>("Enter your choice: ", 1, 5, true);
+        } else {
+            outcomeChoice = Utils::getValidInput<int>("Enter your choice: ", 1, 3, true);
+        }
+        
+        TradeOutcome outcome;
+        switch (outcomeChoice) {
+            case 1:
+                outcome = TradeOutcome::LossAtSL;
+                break;
+            case 2:
+                if (lastTrade->getResults().hasMultipleTargets) {
+                    outcome = TradeOutcome::WinAtTP2;
+                } else {
+                    outcome = TradeOutcome::WinAtTP1;
+                }
+                break;
+            case 3:
+                if (lastTrade->getResults().hasMultipleTargets) {
+                    outcome = TradeOutcome::WinAtTP1;
+                } else {
+                    outcome = TradeOutcome::BreakEven;
+                }
+                break;
+            case 4:
+                outcome = TradeOutcome::WinAtTP2;
+                break;
+            case 5:
+                outcome = TradeOutcome::BreakEven;
+                break;
+            default:
+                outcome = TradeOutcome::Pending;
+                break;
+        }
+        
+        sessionManager.simulateTrade(lastTrade, outcome);
+        
         Utils::clearScreen();
-        UI::displayHeader("RISK SIMULATION MODE");
+        Utils::printHeader("SIMULATION RESULTS");
+        std::cout << lastTrade->getSummary() << std::endl;
         
-        std::cout << "Select simulation type:\n";
-        std::cout << "1. Risk Curve Generator\n";
-        std::cout << "2. Trade Sequence Simulator\n";
-        std::cout << "3. Monte Carlo Analysis\n";
+        // Show updated account balance
+        Utils::printInfo("Updated Session Info:");
+        std::cout << "Current Balance: $" << sessionManager.getCurrentBalance() << std::endl;
         
-        int choice = Utils::getValidInput<int>("Enter your choice: ", 1, 3, true);
-        
-        switch (choice) {
-            case 1: {
-                // Risk Curve Generator
-                Utils::clearScreen();
-                UI::displayHeader("RISK CURVE GENERATOR");
-                
-                // Create and configure the risk curve generator
-                Risk::RiskCurveGenerator curveGenerator;
-                Risk::RiskSimulationParams params;
-                
-                // Get user input for simulation parameters
-                params.initialBalance = Utils::getValidInput<double>("Initial Balance ($): ", 1.0, 10000000.0, true);
-                params.numTrades = Utils::getValidInput<int>("Number of Trades: ", 10, 10000, true);
-                params.winRate = Utils::getValidInput<double>("Win Rate (%): ", 1.0, 99.0, true) / 100.0;
-                params.riskRewardRatio = Utils::getValidInput<double>("Risk/Reward Ratio: ", 0.1, 10.0, true);
-                params.maxRiskPerTrade = Utils::getValidInput<double>("Max Risk Per Trade (%): ", 0.1, 10.0, true);
-                
-                // Risk strategy selection
-                std::cout << "\nSelect risk strategy:\n";
-                std::cout << "1. Fixed Percentage\n";
-                std::cout << "2. Compounding\n";
-                std::cout << "3. Kelly Criterion\n";
-                
-                int strategyChoice = Utils::getValidInput<int>("Enter your choice: ", 1, 3, true);
-                
-                if (strategyChoice == 1) {
-                    params.strategy = Risk::RiskStrategy::FIXED;
-                } else if (strategyChoice == 2) {
-                    params.strategy = Risk::RiskStrategy::COMPOUNDING;
-                } else {
-                    params.strategy = Risk::RiskStrategy::KELLY_CRITERION;
-                }
-                
-                // Set simulation parameters
-                curveGenerator.setSimulationParams(params);
-                
-                // Set risk profile based on strategy
-                if (params.strategy == Risk::RiskStrategy::KELLY_CRITERION) {
-                    curveGenerator.setRiskProfile(Risk::RiskProfile::createAggressive());
-                } else if (params.strategy == Risk::RiskStrategy::COMPOUNDING) {
-                    curveGenerator.setRiskProfile(Risk::RiskProfile::createModerate());
-                } else {
-                    curveGenerator.setRiskProfile(Risk::RiskProfile::createConservative());
-                }
-                
-                std::cout << "\nGenerating risk curve...\n";
-                
-                // Run simulation
-                auto results = curveGenerator.generateCurve();
-                
-                // Display results
-                Utils::clearScreen();
-                UI::displayHeader("RISK SIMULATION RESULTS");
-                
-                std::cout << "Initial Balance: $" << std::fixed << std::setprecision(2) 
-                         << params.initialBalance << "\n";
-                std::cout << "Final Balance:   $" << results.finalBalance << "\n";
-                std::cout << "Net Profit:      $" << (results.finalBalance - params.initialBalance) 
-                         << " (" << ((results.finalBalance - params.initialBalance) / params.initialBalance * 100.0) 
-                         << "%)\n";
-                std::cout << "Max Drawdown:    " << std::setprecision(2) << results.maxDrawdownPercent << "%\n";
-                std::cout << "Profit Factor:   " << std::setprecision(3) << results.profitFactor << "\n";
-                std::cout << "Sharpe Ratio:    " << results.sharpeRatio << "\n";
-                std::cout << "Longest Losing Streak: " << results.maxConsecutiveLosses << " trades\n\n";
-                
-                // Display equity curve chart
-                std::cout << "Equity Curve:\n";
-                std::cout << curveGenerator.getASCIIChart() << "\n\n";
-                
-                // Option to export results
-                char exportResults = Utils::getYesNoInput("Export results to CSV? (y/n): ");
-                if (exportResults == 'y') {
-                    std::string filename;
-                    std::cout << "Enter filename (without extension): ";
-                    std::cin >> filename;
-                    
-                    if (curveGenerator.exportToCSV(filename + ".csv")) {
-                        Utils::printSuccess("Results exported to " + filename + ".csv");
-                    } else {
-                        Utils::printError("Failed to export results.");
-                    }
-                }
-                break;
-            }
-            
-            case 2: {
-                // Trade Sequence Simulator
-                Utils::clearScreen();
-                UI::displayHeader("TRADE SEQUENCE SIMULATOR");
-                std::cout << "Trade sequence simulator is not yet implemented.\n";
-                break;
-            }
-            
-            case 3: {
-                // Monte Carlo Analysis
-                Utils::clearScreen();
-                UI::displayHeader("MONTE CARLO ANALYSIS");
-                std::cout << "Monte Carlo analysis is not yet implemented.\n";
-                break;
+        // Option to save simulation
+        char saveSim = Utils::getYesNoInput("Save this simulation result? (y/n): ");
+        if (saveSim == 'y') {
+            if (sessionManager.getAutoSave()) {
+                Utils::printSuccess("Simulation results automatically saved to session.");
+            } else {
+                lastTrade->save(sessionManager.getSessionFile());
+                Utils::printSuccess("Simulation results saved to " + sessionManager.getSessionFile());
             }
         }
     }

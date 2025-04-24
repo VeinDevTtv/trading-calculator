@@ -9,7 +9,7 @@
 
 namespace Workflow {
     void newTradeWorkflow(SessionManager& sessionManager) {
-        UI::displayHeader("NEW TRADE CALCULATION");
+        Utils::printHeader("NEW TRADE CALCULATION");
         
         // Create a new trade
         auto trade = sessionManager.createTrade();
@@ -96,7 +96,7 @@ namespace Workflow {
             
             // Display updated results
             Utils::clearScreen();
-            UI::displayHeader("TRADE SIMULATION RESULTS");
+            Utils::printHeader("TRADE SIMULATION RESULTS");
             std::cout << trade->getSummary() << std::endl;
         }
         
@@ -113,5 +113,82 @@ namespace Workflow {
                 Utils::printSuccess("Trade saved to " + sessionManager.getSessionFile());
             }
         }
+    }
+
+    void configureTradeParameters(std::shared_ptr<Trade> trade) {
+        // Get basic parameters
+        double riskPercent = Utils::getValidInput<double>("Risk per trade (%): ", 0.01, 100.0, true);
+        trade->setRiskPercentage(riskPercent);
+        
+        double entryPrice = Utils::getValidInput<double>("Entry Price: ", 0.00001, 1000000.0, true);
+        trade->setEntryPrice(entryPrice);
+        
+        // Instrument selection
+        std::cout << "\nSelect instrument type:\n";
+        std::cout << "1. Forex\n";
+        std::cout << "2. Gold\n";
+        std::cout << "3. Indices\n";
+        int instrumentChoice = Utils::getValidInput<int>("Enter your choice: ", 1, 3, true);
+        trade->setInstrumentType(instrumentChoice - 1);
+        
+        // Lot size selection
+        std::cout << "\nSelect lot size type:\n";
+        std::cout << "1. Standard (100,000)\n";
+        std::cout << "2. Mini (10,000)\n";
+        std::cout << "3. Micro (1,000)\n";
+        int lotSizeChoice = Utils::getValidInput<int>("Enter your choice: ", 1, 3, true);
+        trade->setLotSizeType(lotSizeChoice - 1);
+        
+        // Custom contract size
+        char useCustomContract = Utils::getYesNoInput("Use custom contract size? (y/n): ");
+        if (useCustomContract == 'y') {
+            double contractSize = Utils::getValidInput<double>("Contract Size: ", 0.01, 1000000.0, true);
+            trade->setContractSize(contractSize);
+        }
+        
+        // Stop Loss
+        std::cout << "\nHow would you like to specify Stop Loss?\n";
+        std::cout << "1. In pips\n";
+        std::cout << "2. As price level\n";
+        int slChoice = Utils::getValidInput<int>("Enter your choice: ", 1, 2, true);
+        
+        if (slChoice == 1) {
+            double stopLossInPips = Utils::getValidInput<double>("Stop-Loss (pips): ", 0.1, 10000.0, true);
+            trade->setStopLoss(stopLossInPips, InputType::Pips);
+        } else {
+            double stopLossPrice = Utils::getValidInput<double>("Stop-Loss price: ", 0.00001, 1000000.0, true);
+            trade->setStopLoss(stopLossPrice, InputType::Price);
+        }
+        
+        // Take Profit
+        std::cout << "\nHow would you like to specify Take Profit?\n";
+        std::cout << "1. In pips\n";
+        std::cout << "2. As price level\n";
+        std::cout << "3. As risk-reward ratio\n";
+        int tpChoice = Utils::getValidInput<int>("Enter your choice: ", 1, 3, true);
+        
+        if (tpChoice == 1) {
+            double takeProfitInPips = Utils::getValidInput<double>("Take-Profit (pips): ", 0.1, 10000.0, true);
+            trade->setTakeProfit(takeProfitInPips, InputType::Pips);
+        } else if (tpChoice == 2) {
+            double takeProfitPrice = Utils::getValidInput<double>("Take-Profit price: ", 0.00001, 1000000.0, true);
+            trade->setTakeProfit(takeProfitPrice, InputType::Price);
+        } else {
+            double rrRatio = Utils::getValidInput<double>("Risk-Reward ratio: ", 0.1, 100.0, true);
+            
+            // Get stop loss in pips
+            auto params = trade->getParameters();
+            double slPips = params.stopLossInPips;
+            double tpPips = slPips * rrRatio;
+            
+            trade->setTakeProfit(tpPips, InputType::Pips);
+        }
+    }
+
+    void displayTradeResults(std::shared_ptr<Trade> trade) {
+        Utils::clearScreen();
+        Utils::printHeader("TRADE CALCULATION RESULTS");
+        
+        std::cout << trade->getSummary() << std::endl;
     }
 } 

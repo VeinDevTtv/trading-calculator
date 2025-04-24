@@ -1,7 +1,7 @@
-#ifndef WORKFLOW_SETTINGS_HANDLER_H
-#define WORKFLOW_SETTINGS_HANDLER_H
+#ifndef SETTINGS_HANDLER_H
+#define SETTINGS_HANDLER_H
 
-#include "../SessionManager.h"
+#include "SessionManager.h"
 
 namespace Workflow {
     /**
@@ -11,4 +11,4 @@ namespace Workflow {
     void configureSettings(SessionManager& sessionManager);
 }
 
-#endif // WORKFLOW_SETTINGS_HANDLER_H 
+#endif // SETTINGS_HANDLER_H 

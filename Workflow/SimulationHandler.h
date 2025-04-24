@@ -1,7 +1,7 @@
-#ifndef WORKFLOW_SIMULATION_HANDLER_H
-#define WORKFLOW_SIMULATION_HANDLER_H
+#ifndef SIMULATION_HANDLER_H
+#define SIMULATION_HANDLER_H
 
-#include "../SessionManager.h"
+#include "SessionManager.h"
 
 namespace Workflow {
     /**
@@ -11,4 +11,4 @@ namespace Workflow {
     void simulationMode(SessionManager& sessionManager);
 }
 
-#endif // WORKFLOW_SIMULATION_HANDLER_H 
+#endif // SIMULATION_HANDLER_H 

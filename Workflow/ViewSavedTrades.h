@@ -1,7 +1,7 @@
-#ifndef WORKFLOW_VIEW_SAVED_TRADES_H
-#define WORKFLOW_VIEW_SAVED_TRADES_H
+#ifndef VIEW_SAVED_TRADES_H
+#define VIEW_SAVED_TRADES_H
 
-#include "../SessionManager.h"
+#include "SessionManager.h"
 
 namespace Workflow {
     /**
@@ -11,4 +11,4 @@ namespace Workflow {
     void viewSavedTrades(SessionManager& sessionManager);
 }
 
-#endif // WORKFLOW_VIEW_SAVED_TRADES_H 
+#endif // VIEW_SAVED_TRADES_H 
