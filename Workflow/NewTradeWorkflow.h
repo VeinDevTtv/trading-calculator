@@ -1,9 +1,8 @@
-#ifndef WORKFLOW_NEW_TRADE_WORKFLOW_H
-#define WORKFLOW_NEW_TRADE_WORKFLOW_H
+#ifndef NEW_TRADE_WORKFLOW_H
+#define NEW_TRADE_WORKFLOW_H
 
+#include "SessionManager.h"
 #include <memory>
-#include "../SessionManager.h"
-#include "../Trade.h"
 
 namespace Workflow {
     /**
@@ -11,6 +10,8 @@ namespace Workflow {
      * @param sessionManager Reference to the current session manager
      */
     void newTradeWorkflow(SessionManager& sessionManager);
+    void configureTradeParameters(std::shared_ptr<Trade> trade);
+    void displayTradeResults(std::shared_ptr<Trade> trade);
 }
 
-#endif // WORKFLOW_NEW_TRADE_WORKFLOW_H 
+#endif // NEW_TRADE_WORKFLOW_H 

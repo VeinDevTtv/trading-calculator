@@ -16,88 +16,17 @@
 #include "Workflow/StatsHandler.h"
 #include "Workflow/SettingsHandler.h"
 #include "Workflow/EquityCurveRenderer.h"
+#include "Workflow/MainMenu.h"
 
 int main() {
-    bool running = true;
-    SessionManager sessionManager;
-    
-    // Load configuration or set defaults
-    TradeParameters defaultParams;
-    Utils::loadConfig(defaultParams);
-    
-    // Welcome banner
-    Utils::printHeader("ADVANCED TRADING RISK CALCULATOR");
-    std::cout << "Welcome to the Advanced Trading Risk Calculator v2.0\n\n";
-    std::cout << "This application helps you calculate optimal position sizes\n";
-    std::cout << "and manage risk for your trading activities.\n\n";
-    std::cout << "Press Enter to continue...";
-    std::cin.get();
-    
-    // Start with a new session
-    double initialBalance = Utils::getValidInput<double>("Enter your starting account balance: $", 1.0, 1000000000.0, true);
-    sessionManager.startNewSession(initialBalance);
-    
-    // Main program loop
-    while (running) {
-        Utils::clearScreen();
-        UI::displayMainMenu();
-        
-        int choice = Utils::getValidInput<int>("Enter your choice: ", 1, 7, true);
-        
-        switch (choice) {
-            case 1: // New Trade
-                Workflow::newTradeWorkflow(sessionManager);
-                break;
-                
-            case 2: // View Saved Trades
-                Workflow::viewSavedTrades(sessionManager);
-                break;
-                
-            case 3: // Simulation Mode
-                Workflow::simulationMode(sessionManager);
-                break;
-                
-            case 4: // Session Statistics
-                Workflow::sessionStatsMode(sessionManager);
-                break;
-                
-            case 5: // Settings
-                Workflow::configureSettings(sessionManager);
-                break;
-                
-            case 6: // Display Equity Curve
-                Workflow::displayEquityCurve(sessionManager);
-                break;
-                
-            case 7: // Exit
-                if (sessionManager.isSessionActive()) {
-                    char saveSession = Utils::getYesNoInput("Do you want to save this session? (y/n): ");
-                    if (saveSession == 'y') {
-                        sessionManager.saveSession();
-                        sessionManager.saveSessionAsJson();
-                        Utils::printSuccess("Session saved!");
-                    }
-                    sessionManager.endSession();
-                }
-                running = false;
-                break;
-                
-            default:
-                Utils::printError("Invalid choice. Please try again.");
-                break;
-        }
-        
-        if (running && choice != 7) {
-            std::cout << "\nPress Enter to continue...";
-            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-            std::cin.get();
-        }
+    try {
+        Workflow::MainMenu menu;
+        menu.run();
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Fatal error: " << e.what() << std::endl;
+        return 1;
     }
-    
-    Utils::clearScreen();
-    std::cout << "Thank you for using the Advanced Trading Risk Calculator!\n";
-    
-    return 0;
 }
 
 void displayMainMenu() {
