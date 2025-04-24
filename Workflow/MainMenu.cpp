@@ -1,5 +1,5 @@
 #include "MainMenu.h"
-#include "Utils.h"
+#include "UI/ConsoleUI.h"
 #include "Workflow/NewTradeWorkflow.h"
 #include "Workflow/ViewSavedTrades.h"
 #include "Workflow/SimulationHandler.h"
@@ -18,53 +18,60 @@ MainMenu::MainMenu() : m_running(true) {
 MainMenu::~MainMenu() = default;
 
 void MainMenu::run() {
+    auto& ui = UI::ConsoleUI::getInstance();
+    
     // Load configuration or set defaults
     TradeParameters defaultParams;
     Utils::loadConfig(defaultParams);
     
     // Welcome banner
-    Utils::printHeader("ADVANCED TRADING RISK CALCULATOR");
-    std::cout << "Welcome to the Advanced Trading Risk Calculator v2.0\n\n";
-    std::cout << "This application helps you calculate optimal position sizes\n";
-    std::cout << "and manage risk for your trading activities.\n\n";
-    std::cout << "Press Enter to continue...";
-    std::cin.get();
+    ui.clearScreen();
+    ui.printHeader("ADVANCED TRADING RISK CALCULATOR");
+    ui.printInfo("Welcome to the Advanced Trading Risk Calculator v2.0");
+    ui.printInfo("This application helps you calculate optimal position sizes");
+    ui.printInfo("and manage risk for your trading activities.");
+    ui.getInput("Press Enter to continue...");
     
     // Initialize session
     initializeSession();
     
     // Main program loop
     while (m_running) {
-        Utils::clearScreen();
+        ui.clearScreen();
         displayMainMenu();
         
-        int choice = Utils::getValidInput<int>("Enter your choice: ", 1, 7, true);
+        int choice = ui.getValidInput<int>("Enter your choice: ", 1, 7, true);
         handleUserChoice(choice);
         
         if (m_running && choice != 7) {
-            std::cout << "\nPress Enter to continue...";
-            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-            std::cin.get();
+            ui.getInput("\nPress Enter to continue...");
         }
     }
     
-    Utils::clearScreen();
-    std::cout << "Thank you for using the Advanced Trading Risk Calculator!\n";
+    ui.clearScreen();
+    ui.printSuccess("Thank you for using the Advanced Trading Risk Calculator!");
 }
 
 void MainMenu::displayMainMenu() const {
-    Utils::printHeader("MAIN MENU");
+    auto& ui = UI::ConsoleUI::getInstance();
+    ui.printHeader("MAIN MENU");
     
-    std::cout << "1. Calculate New Trade\n";
-    std::cout << "2. View Saved Trades\n";
-    std::cout << "3. Simulation Mode\n";
-    std::cout << "4. Session Statistics\n";
-    std::cout << "5. Settings\n";
-    std::cout << "6. Display Equity Curve\n";
-    std::cout << "7. Exit\n\n";
+    std::vector<std::string> options = {
+        "Calculate New Trade",
+        "View Saved Trades",
+        "Simulation Mode",
+        "Session Statistics",
+        "Settings",
+        "Display Equity Curve",
+        "Exit"
+    };
+    
+    ui.displayMenu(options);
 }
 
 void MainMenu::handleUserChoice(int choice) {
+    auto& ui = UI::ConsoleUI::getInstance();
+    
     switch (choice) {
         case 1:
             newTradeWorkflow();
@@ -88,28 +95,31 @@ void MainMenu::handleUserChoice(int choice) {
             exitProgram();
             break;
         default:
-            Utils::printError("Invalid choice. Please try again.");
+            ui.printError("Invalid choice. Please try again.");
             break;
     }
 }
 
 void MainMenu::initializeSession() {
-    double initialBalance = Utils::getValidInput<double>(
+    auto& ui = UI::ConsoleUI::getInstance();
+    double initialBalance = ui.getValidInput<double>(
         "Enter your starting account balance: $", 
         1.0, 
         1000000000.0, 
         true
     );
     m_sessionManager->startNewSession(initialBalance);
+    ui.printSuccess("Session initialized with balance: $" + std::to_string(initialBalance));
 }
 
 void MainMenu::saveSessionIfNeeded() {
+    auto& ui = UI::ConsoleUI::getInstance();
     if (m_sessionManager->isSessionActive()) {
-        char saveSession = Utils::getYesNoInput("Do you want to save this session? (y/n): ");
+        char saveSession = ui.getYesNoInput("Do you want to save this session? (y/n): ");
         if (saveSession == 'y') {
             m_sessionManager->saveSession();
             m_sessionManager->saveSessionAsJson();
-            Utils::printSuccess("Session saved!");
+            ui.printSuccess("Session saved!");
         }
         m_sessionManager->endSession();
     }
