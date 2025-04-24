@@ -8,22 +8,14 @@
 #include "Utils.h"
 #include "Trade.h"
 #include "SessionManager.h"
-
-// Function prototypes
-void displayMainMenu();
-void newTradeWorkflow(SessionManager& sessionManager);
-void configureTradeParameters(std::shared_ptr<Trade> trade);
-void displayTradeResults(std::shared_ptr<Trade> trade);
-void viewSavedTrades(SessionManager& sessionManager);
-void simulationMode(SessionManager& sessionManager);
-void sessionStatsMode(SessionManager& sessionManager);
-void configureSettings(SessionManager& sessionManager);
-void displayEquityCurve(const SessionManager& sessionManager);
-
-template<typename T>
-T getValidInput(const std::string& prompt, T min = T(), T max = T(), bool hasRange = false);
-
-char getYesNoInput(const std::string& prompt);
+#include "UI/Menu.h"
+#include "Utils/InputHandler.h"
+#include "Workflow/NewTradeWorkflow.h"
+#include "Workflow/ViewSavedTrades.h"
+#include "Workflow/SimulationHandler.h"
+#include "Workflow/StatsHandler.h"
+#include "Workflow/SettingsHandler.h"
+#include "Workflow/EquityCurveRenderer.h"
 
 int main() {
     bool running = true;
@@ -42,44 +34,44 @@ int main() {
     std::cin.get();
     
     // Start with a new session
-    double initialBalance = getValidInput<double>("Enter your starting account balance: $", 1.0, 1000000000.0, true);
+    double initialBalance = Utils::getValidInput<double>("Enter your starting account balance: $", 1.0, 1000000000.0, true);
     sessionManager.startNewSession(initialBalance);
     
     // Main program loop
     while (running) {
         Utils::clearScreen();
-        displayMainMenu();
+        UI::displayMainMenu();
         
-        int choice = getValidInput<int>("Enter your choice: ", 1, 7, true);
+        int choice = Utils::getValidInput<int>("Enter your choice: ", 1, 7, true);
         
         switch (choice) {
             case 1: // New Trade
-                newTradeWorkflow(sessionManager);
+                Workflow::newTradeWorkflow(sessionManager);
                 break;
                 
             case 2: // View Saved Trades
-                viewSavedTrades(sessionManager);
+                Workflow::viewSavedTrades(sessionManager);
                 break;
                 
             case 3: // Simulation Mode
-                simulationMode(sessionManager);
+                Workflow::simulationMode(sessionManager);
                 break;
                 
             case 4: // Session Statistics
-                sessionStatsMode(sessionManager);
+                Workflow::sessionStatsMode(sessionManager);
                 break;
                 
             case 5: // Settings
-                configureSettings(sessionManager);
+                Workflow::configureSettings(sessionManager);
                 break;
                 
             case 6: // Display Equity Curve
-                displayEquityCurve(sessionManager);
+                Workflow::displayEquityCurve(sessionManager);
                 break;
                 
             case 7: // Exit
                 if (sessionManager.isSessionActive()) {
-                    char saveSession = getYesNoInput("Do you want to save this session? (y/n): ");
+                    char saveSession = Utils::getYesNoInput("Do you want to save this session? (y/n): ");
                     if (saveSession == 'y') {
                         sessionManager.saveSession();
                         sessionManager.saveSessionAsJson();
