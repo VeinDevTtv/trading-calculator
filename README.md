@@ -50,7 +50,7 @@ A comprehensive C++ application for traders to calculate position sizes, manage 
 ### Building from Source
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/trading-calculator.git
+git clone https://github.com/VeinDevTtv/trading-calculator.git
 cd trading-calculator
 
 # Create build directory
